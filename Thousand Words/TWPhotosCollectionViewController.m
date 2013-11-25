@@ -8,6 +8,9 @@
 
 #import "TWPhotosCollectionViewController.h"
 #import "TWPhotoCollectionViewCell.h"
+#import "Photo.h"
+#import "TWPictureDataTransformer.h"
+#import "TWCoreDataHelper.h"
 
 @interface TWPhotosCollectionViewController () <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
 
@@ -41,6 +44,23 @@
 	// Do any additional setup after loading the view.
 }
 
+/* Access the photos from Core Data in the viewWillAppear method since this method is called everytime this viewcontroller appears on the screen instead of only the first time (viewDidLoad only is called only when it is created) */
+-(void)viewWillAppear:(BOOL)animated
+{
+    /* Call to the super classes implementation of viewWillAppear */
+    [super viewWillAppear:YES];
+ 
+    /* The Photos are stored in Core Data as an NSSet. */
+    NSSet *unorderedPhotos = self.album.photos;
+    /* To organize them we use a NSSort descriptor to arrange the photos by date. */
+    NSSortDescriptor *dateDescriptor = [NSSortDescriptor sortDescriptorWithKey:@"date" ascending:YES];
+    NSArray *sortedPhotos = [unorderedPhotos sortedArrayUsingDescriptors:@[dateDescriptor]];
+    self.photos = [sortedPhotos mutableCopy];
+    
+    /* Now that the photos are arranged we reload our CollectionView. */
+    [self.collectionView reloadData];
+}
+
 - (void)didReceiveMemoryWarning
 {
     [super didReceiveMemoryWarning];
@@ -50,10 +70,11 @@
 /* When we press the camera button we create a UIImagePickerController and present the avaliable option on the screen. If the camera is avaliable because we are using our phone we show that. If not then we show the Photos Album. */
 - (IBAction)cameraBarButtonItemPressed:(UIBarButtonItem *)sender
 {
-    
+    /* Create a UIImagePicker object and set its' delegate property to self so we can implement the ImagePicker delegate methods */
     UIImagePickerController *picker = [[UIImagePickerController alloc] init];
     picker.delegate = self;
     
+    /* If the Camera is avaliable use it to choose the image if not then use the album */
     if ([UIImagePickerController isSourceTypeAvailable:UIImagePickerControllerSourceTypeCamera]){
         picker.sourceType = UIImagePickerControllerSourceTypeCamera;
     }
@@ -64,6 +85,27 @@
     
 }
 
+#pragma mark - Helper Methods
+
+/* Instance method which accepts a UIImage and persists it to Core Data. */
+- (Photo *)photoFromImage:(UIImage *)image
+{
+    /* Create a photo object using the method insertNewObjectForEntityForName for the entity name Photo */
+    Photo *photo = [NSEntityDescription insertNewObjectForEntityForName:@"Photo" inManagedObjectContext:[TWCoreDataHelper managedObjectContext]];
+    /* Set the photo's attributes */
+    photo.image = image;
+    photo.date = [NSDate date];
+    photo.albumBook = self.album;
+    
+    NSError *error = nil;
+    /* Save the photo, the if statement evaluates to true if there is an error */
+    if (![[photo managedObjectContext] save:&error]){
+        //Error in saving
+        NSLog(@"%@", error);
+    }
+    return photo;
+}
+
 #pragma mark - UICollectionViewDataSource
 
 /* Display the photos stored in the photo's array */
@@ -72,13 +114,16 @@
     static NSString *CellIdentifier = @"Photo Cell";
     
     TWPhotoCollectionViewCell *cell = [collectionView dequeueReusableCellWithReuseIdentifier:CellIdentifier forIndexPath:indexPath];
+    
+    /* Access the correct photo from the photo's array */
+    Photo *photo = self.photos[indexPath.row];
     cell.backgroundColor = [UIColor whiteColor];
-    NSLog(@"%@",self.photos[indexPath.row]);
-    cell.imageView.image = self.photos[indexPath.row];
+    cell.imageView.image = photo.image;
     
     return cell;
 }
 
+/* Number of items in the collection view should be equal to the number of photos in the photos array */
 -(NSInteger)collectionView:(UICollectionView *)collectionView numberOfItemsInSection:(NSInteger)section
 {
     return [self.photos count];
@@ -92,7 +137,7 @@
     UIImage *image = info[UIImagePickerControllerEditedImage];
     if(!image) image = info[UIImagePickerControllerOriginalImage];
     
-    [self.photos addObject:image];
+    [self.photos addObject:[self photoFromImage:image]];
 
     [self.collectionView reloadData];
     
